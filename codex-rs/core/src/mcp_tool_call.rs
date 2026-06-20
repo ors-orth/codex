@@ -66,10 +66,13 @@ use codex_protocol::mcp_approval_meta::TOOL_DESCRIPTION_KEY as MCP_TOOL_APPROVAL
 use codex_protocol::mcp_approval_meta::TOOL_PARAMS_DISPLAY_KEY as MCP_TOOL_APPROVAL_TOOL_PARAMS_DISPLAY_KEY;
 use codex_protocol::mcp_approval_meta::TOOL_PARAMS_KEY as MCP_TOOL_APPROVAL_TOOL_PARAMS_KEY;
 use codex_protocol::mcp_approval_meta::TOOL_TITLE_KEY as MCP_TOOL_APPROVAL_TOOL_TITLE_KEY;
+use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::InputModality;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::McpInvocation;
+use codex_protocol::protocol::NetworkAccess;
 use codex_protocol::protocol::ReviewDecision;
+use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::request_user_input::RequestUserInputAnswer;
 use codex_protocol::request_user_input::RequestUserInputArgs;
 use codex_protocol::request_user_input::RequestUserInputQuestion;
@@ -743,12 +746,7 @@ async fn augment_mcp_tool_request_meta_with_sandbox_state(
         return Ok(meta);
     };
     let permission_profile = turn_context.permission_profile();
-    let sandbox_policy = sandbox_cwd.to_abs_path().ok().map(|cwd| {
-        codex_sandboxing::compatibility_sandbox_policy_for_permission_profile(
-            &permission_profile,
-            cwd.as_path(),
-        )
-    });
+    let sandbox_policy = sandbox_policy_for_mcp_sandbox_state(&permission_profile, &sandbox_cwd);
     let sandbox_state = serde_json::to_value(SandboxState {
         permission_profile: Some(permission_profile),
         sandbox_policy,
@@ -776,6 +774,54 @@ async fn augment_mcp_tool_request_meta_with_sandbox_state(
     }
 
     Ok(meta)
+}
+
+fn sandbox_policy_for_mcp_sandbox_state(
+    permission_profile: &PermissionProfile,
+    sandbox_cwd: &PathUri,
+) -> Option<SandboxPolicy> {
+    if let Ok(cwd) = sandbox_cwd.to_abs_path() {
+        return Some(
+            codex_sandboxing::compatibility_sandbox_policy_for_permission_profile(
+                permission_profile,
+                cwd.as_path(),
+            ),
+        );
+    }
+
+    match permission_profile {
+        PermissionProfile::Disabled => Some(SandboxPolicy::DangerFullAccess),
+        PermissionProfile::External { network } => Some(SandboxPolicy::ExternalSandbox {
+            network_access: if network.is_enabled() {
+                NetworkAccess::Enabled
+            } else {
+                NetworkAccess::Restricted
+            },
+        }),
+        PermissionProfile::Managed { .. } => {
+            let (file_system_policy, network_policy) = permission_profile.to_runtime_permissions();
+            if file_system_policy.has_full_disk_write_access() {
+                Some(if network_policy.is_enabled() {
+                    SandboxPolicy::DangerFullAccess
+                } else {
+                    SandboxPolicy::ExternalSandbox {
+                        network_access: NetworkAccess::Restricted,
+                    }
+                })
+            } else if file_system_policy.has_full_disk_read_access()
+                && !file_system_policy
+                    .entries
+                    .iter()
+                    .any(|entry| entry.access.can_write())
+            {
+                Some(SandboxPolicy::ReadOnly {
+                    network_access: network_policy.is_enabled(),
+                })
+            } else {
+                None
+            }
+        }
+    }
 }
 
 fn sandbox_cwd_for_mcp_server(turn_context: &TurnContext, environment_id: &str) -> Option<PathUri> {

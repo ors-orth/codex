@@ -22,10 +22,14 @@ use codex_hooks::Hooks;
 use codex_hooks::HooksConfig;
 use codex_model_provider::create_model_provider;
 use codex_protocol::models::PermissionProfile;
+use codex_protocol::permissions::FileSystemSandboxPolicy;
+use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::EventMsg;
 use codex_protocol::protocol::GranularApprovalConfig;
 use codex_protocol::protocol::McpInvocation;
+use codex_protocol::protocol::NetworkAccess;
+use codex_protocol::protocol::SandboxPolicy;
 use codex_protocol::protocol::SessionSource;
 use codex_rollout_trace::ThreadStartedTraceMetadata;
 use codex_rollout_trace::ToolDispatchInvocation;
@@ -129,6 +133,67 @@ fn prompt_options(
         allow_session_remember,
         allow_persistent_approval,
     }
+}
+
+#[test]
+fn sandbox_policy_meta_preserves_disabled_for_foreign_cwd() {
+    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::Disabled, &foreign_cwd),
+        Some(SandboxPolicy::DangerFullAccess)
+    );
+}
+
+#[test]
+fn sandbox_policy_meta_preserves_external_for_foreign_cwd() {
+    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let profile = PermissionProfile::External {
+        network: NetworkSandboxPolicy::Enabled,
+    };
+
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd),
+        Some(SandboxPolicy::ExternalSandbox {
+            network_access: NetworkAccess::Enabled,
+        })
+    );
+}
+
+#[test]
+fn sandbox_policy_meta_preserves_read_only_for_foreign_cwd() {
+    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::read_only(), &foreign_cwd),
+        Some(SandboxPolicy::ReadOnly {
+            network_access: false,
+        })
+    );
+}
+
+#[test]
+fn sandbox_policy_meta_preserves_full_access_for_foreign_cwd() {
+    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let profile = PermissionProfile::from_runtime_permissions(
+        &FileSystemSandboxPolicy::unrestricted(),
+        NetworkSandboxPolicy::Enabled,
+    );
+
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd),
+        Some(SandboxPolicy::DangerFullAccess)
+    );
+}
+
+#[test]
+fn sandbox_policy_meta_omits_cwd_dependent_policy_for_foreign_cwd() {
+    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::workspace_write(), &foreign_cwd),
+        None
+    );
 }
 
 #[tokio::test]
