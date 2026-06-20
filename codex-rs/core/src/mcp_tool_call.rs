@@ -800,8 +800,7 @@ fn sandbox_policy_for_mcp_sandbox_state(
     }
 
     let workspace_root_for_projection =
-        workspace_root_matching_sandbox_cwd(sandbox_cwd, workspace_roots)
-            .or_else(|| workspace_roots.first());
+        workspace_root_matching_sandbox_cwd(sandbox_cwd, workspace_roots);
 
     if let Some(cwd) = workspace_root_for_projection
         && let Ok(sandbox_policy) = permission_profile.to_legacy_sandbox_policy(cwd.as_path())
@@ -841,7 +840,7 @@ fn sandbox_policy_for_mcp_sandbox_state(
                 workspace_write_sandbox_policy_without_native_cwd(
                     &file_system_policy,
                     network_policy,
-                    workspace_roots,
+                    workspace_root_for_projection,
                 )
             }
         }
@@ -860,8 +859,10 @@ fn workspace_root_matching_sandbox_cwd<'a>(
 fn workspace_write_sandbox_policy_without_native_cwd(
     file_system_policy: &FileSystemSandboxPolicy,
     network_policy: NetworkSandboxPolicy,
-    workspace_roots: &[AbsolutePathBuf],
+    workspace_root_for_projection: Option<&AbsolutePathBuf>,
 ) -> Option<SandboxPolicy> {
+    let workspace_root_for_projection = workspace_root_for_projection?;
+
     if !file_system_policy.has_full_disk_read_access() {
         return None;
     }
@@ -893,7 +894,7 @@ fn workspace_write_sandbox_policy_without_native_cwd(
                 | FileSystemSpecialPath::Unknown { .. } => return None,
             },
             FileSystemPath::Path { path } => {
-                if workspace_roots.len() == 1 && workspace_roots.first() == Some(path) {
+                if workspace_root_for_projection == path {
                     materialized_workspace_root_writable = true;
                 } else {
                     return None;

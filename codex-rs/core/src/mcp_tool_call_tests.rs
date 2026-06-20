@@ -202,7 +202,7 @@ fn sandbox_policy_meta_preserves_full_access_for_foreign_cwd() {
 }
 
 #[test]
-fn sandbox_policy_meta_preserves_workspace_write_for_foreign_cwd() {
+fn sandbox_policy_meta_omits_workspace_write_for_unmatched_foreign_cwd() {
     let foreign_cwd = foreign_cwd();
 
     assert_eq!(
@@ -211,17 +211,12 @@ fn sandbox_policy_meta_preserves_workspace_write_for_foreign_cwd() {
             &foreign_cwd,
             &[]
         ),
-        Some(SandboxPolicy::WorkspaceWrite {
-            writable_roots: Vec::new(),
-            network_access: false,
-            exclude_tmpdir_env_var: false,
-            exclude_slash_tmp: false,
-        })
+        None
     );
 }
 
 #[test]
-fn sandbox_policy_meta_preserves_materialized_workspace_write_for_foreign_cwd() {
+fn sandbox_policy_meta_omits_materialized_workspace_write_for_unmatched_foreign_cwd() {
     let foreign_cwd = foreign_cwd();
     let workspace_root =
         AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace"))
@@ -232,12 +227,7 @@ fn sandbox_policy_meta_preserves_materialized_workspace_write_for_foreign_cwd() 
 
     assert_eq!(
         sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd, &workspace_roots),
-        Some(SandboxPolicy::WorkspaceWrite {
-            writable_roots: Vec::new(),
-            network_access: false,
-            exclude_tmpdir_env_var: false,
-            exclude_slash_tmp: false,
-        })
+        None
     );
 }
 
@@ -260,7 +250,7 @@ fn sandbox_policy_meta_omits_workspace_write_with_extra_roots_for_foreign_cwd() 
 }
 
 #[test]
-fn sandbox_policy_meta_preserves_materialized_multiple_workspace_roots_for_foreign_cwd() {
+fn sandbox_policy_meta_omits_materialized_multiple_workspace_roots_for_unmatched_foreign_cwd() {
     let foreign_cwd = foreign_cwd();
     let first = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace-a"))
         .expect("absolute path");
@@ -272,12 +262,7 @@ fn sandbox_policy_meta_preserves_materialized_multiple_workspace_roots_for_forei
 
     assert_eq!(
         sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd, &workspace_roots),
-        Some(SandboxPolicy::WorkspaceWrite {
-            writable_roots: vec![second],
-            network_access: false,
-            exclude_tmpdir_env_var: false,
-            exclude_slash_tmp: false,
-        })
+        None
     );
 }
 
