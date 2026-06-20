@@ -847,7 +847,7 @@ async fn local_stdio_server_uses_runtime_fallback_cwd_when_config_omits_cwd() ->
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()> {
+async fn stdio_mcp_tool_call_includes_sandbox_policy_meta() -> anyhow::Result<()> {
     // TODO(anp): Remove after packaging a Windows stdio test server for Wine exec.
     skip_if_wine_exec!(
         Ok(()),
@@ -900,7 +900,7 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
     fixture
         .submit_turn_with_permission_profile(
             "call the rmcp sandbox_meta tool",
-            PermissionProfile::read_only(),
+            PermissionProfile::Disabled,
         )
         .await?;
 
@@ -926,7 +926,10 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
     let sandbox_meta = meta
         .get(MCP_SANDBOX_STATE_META_CAPABILITY)
         .expect("sandbox state metadata should be present");
-    assert_eq!(sandbox_meta.get("sandboxPolicy"), None);
+    assert_eq!(
+        sandbox_meta.get("sandboxPolicy"),
+        Some(&json!({ "type": "danger-full-access" }))
+    );
     let expected_sandbox_cwd = PathUri::from_abs_path(&fixture.config.cwd).to_string();
     assert_eq!(
         sandbox_meta.get("sandboxCwd").and_then(Value::as_str),
