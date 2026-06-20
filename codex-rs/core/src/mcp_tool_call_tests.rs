@@ -281,6 +281,44 @@ fn sandbox_policy_meta_preserves_materialized_multiple_workspace_roots_for_forei
     );
 }
 
+#[test]
+fn sandbox_policy_meta_prefers_workspace_root_matching_sandbox_cwd() {
+    let first = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace-a"))
+        .expect("absolute path");
+    let second = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace-b"))
+        .expect("absolute path");
+    let workspace_roots = vec![first, second.clone()];
+    let sandbox_cwd = PathUri::from_abs_path(&second);
+
+    assert_eq!(
+        workspace_root_matching_sandbox_cwd(&sandbox_cwd, &workspace_roots),
+        Some(&second)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn sandbox_policy_meta_uses_matching_workspace_root_for_foreign_cwd() {
+    let first = AbsolutePathBuf::from_absolute_path("/D:/workspace-a").expect("absolute path");
+    let second = AbsolutePathBuf::from_absolute_path("/C:/workspace-b").expect("absolute path");
+    let workspace_roots = vec![first.clone(), second.clone()];
+    let sandbox_cwd = PathUri::parse("file:///C:/workspace-b").expect("valid foreign file URI");
+    let profile = PermissionProfile::workspace_write()
+        .materialize_project_roots_with_workspace_roots(&workspace_roots);
+
+    assert!(sandbox_cwd.to_abs_path().is_err());
+    assert_eq!(PathUri::from_abs_path(&second), sandbox_cwd);
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&profile, &sandbox_cwd, &workspace_roots),
+        Some(SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![first],
+            network_access: false,
+            exclude_tmpdir_env_var: false,
+            exclude_slash_tmp: false,
+        })
+    );
+}
+
 #[tokio::test]
 async fn execute_mcp_tool_call_records_replayable_correlation() -> anyhow::Result<()> {
     let temp = tempdir()?;

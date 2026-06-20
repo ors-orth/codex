@@ -799,7 +799,11 @@ fn sandbox_policy_for_mcp_sandbox_state(
         );
     }
 
-    if let Some(cwd) = workspace_roots.first()
+    let workspace_root_for_projection =
+        workspace_root_matching_sandbox_cwd(sandbox_cwd, workspace_roots)
+            .or_else(|| workspace_roots.first());
+
+    if let Some(cwd) = workspace_root_for_projection
         && let Ok(sandbox_policy) = permission_profile.to_legacy_sandbox_policy(cwd.as_path())
     {
         return Some(sandbox_policy);
@@ -842,6 +846,15 @@ fn sandbox_policy_for_mcp_sandbox_state(
             }
         }
     }
+}
+
+fn workspace_root_matching_sandbox_cwd<'a>(
+    sandbox_cwd: &PathUri,
+    workspace_roots: &'a [AbsolutePathBuf],
+) -> Option<&'a AbsolutePathBuf> {
+    workspace_roots
+        .iter()
+        .find(|root| PathUri::from_abs_path(root) == *sandbox_cwd)
 }
 
 fn workspace_write_sandbox_policy_without_native_cwd(
