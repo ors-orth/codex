@@ -136,9 +136,23 @@ fn prompt_options(
     }
 }
 
+fn foreign_cwd() -> PathUri {
+    let uri = if cfg!(windows) {
+        "file:///workspace"
+    } else {
+        "file:///C:/workspace"
+    };
+    PathUri::parse(uri).expect("valid foreign file URI")
+}
+
+#[test]
+fn sandbox_policy_meta_foreign_cwd_fixture_is_foreign_on_current_platform() {
+    assert!(foreign_cwd().to_abs_path().is_err());
+}
+
 #[test]
 fn sandbox_policy_meta_preserves_disabled_for_foreign_cwd() {
-    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let foreign_cwd = foreign_cwd();
 
     assert_eq!(
         sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::Disabled, &foreign_cwd, &[]),
@@ -148,7 +162,7 @@ fn sandbox_policy_meta_preserves_disabled_for_foreign_cwd() {
 
 #[test]
 fn sandbox_policy_meta_preserves_external_for_foreign_cwd() {
-    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let foreign_cwd = foreign_cwd();
     let profile = PermissionProfile::External {
         network: NetworkSandboxPolicy::Enabled,
     };
@@ -163,7 +177,7 @@ fn sandbox_policy_meta_preserves_external_for_foreign_cwd() {
 
 #[test]
 fn sandbox_policy_meta_preserves_read_only_for_foreign_cwd() {
-    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let foreign_cwd = foreign_cwd();
 
     assert_eq!(
         sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::read_only(), &foreign_cwd, &[]),
@@ -175,7 +189,7 @@ fn sandbox_policy_meta_preserves_read_only_for_foreign_cwd() {
 
 #[test]
 fn sandbox_policy_meta_preserves_full_access_for_foreign_cwd() {
-    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let foreign_cwd = foreign_cwd();
     let profile = PermissionProfile::from_runtime_permissions(
         &FileSystemSandboxPolicy::unrestricted(),
         NetworkSandboxPolicy::Enabled,
@@ -189,7 +203,7 @@ fn sandbox_policy_meta_preserves_full_access_for_foreign_cwd() {
 
 #[test]
 fn sandbox_policy_meta_preserves_workspace_write_for_foreign_cwd() {
-    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let foreign_cwd = foreign_cwd();
 
     assert_eq!(
         sandbox_policy_for_mcp_sandbox_state(
@@ -208,7 +222,7 @@ fn sandbox_policy_meta_preserves_workspace_write_for_foreign_cwd() {
 
 #[test]
 fn sandbox_policy_meta_preserves_materialized_workspace_write_for_foreign_cwd() {
-    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let foreign_cwd = foreign_cwd();
     let workspace_root =
         AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace"))
             .expect("absolute path");
@@ -229,7 +243,7 @@ fn sandbox_policy_meta_preserves_materialized_workspace_write_for_foreign_cwd() 
 
 #[test]
 fn sandbox_policy_meta_omits_workspace_write_with_extra_roots_for_foreign_cwd() {
-    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let foreign_cwd = foreign_cwd();
     let extra_root = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("extra"))
         .expect("absolute path");
     let profile = PermissionProfile::workspace_write_with(
@@ -247,7 +261,7 @@ fn sandbox_policy_meta_omits_workspace_write_with_extra_roots_for_foreign_cwd() 
 
 #[test]
 fn sandbox_policy_meta_preserves_materialized_multiple_workspace_roots_for_foreign_cwd() {
-    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let foreign_cwd = foreign_cwd();
     let first = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace-a"))
         .expect("absolute path");
     let second = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace-b"))
