@@ -847,7 +847,27 @@ async fn local_stdio_server_uses_runtime_fallback_cwd_when_config_omits_cwd() ->
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()> {
+async fn stdio_mcp_tool_call_includes_read_only_sandbox_policy_meta() -> anyhow::Result<()> {
+    assert_stdio_mcp_tool_call_includes_sandbox_policy_meta(
+        PermissionProfile::read_only(),
+        json!({ "type": "read-only" }),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn stdio_mcp_tool_call_includes_disabled_sandbox_policy_meta() -> anyhow::Result<()> {
+    assert_stdio_mcp_tool_call_includes_sandbox_policy_meta(
+        PermissionProfile::Disabled,
+        json!({ "type": "danger-full-access" }),
+    )
+    .await
+}
+
+async fn assert_stdio_mcp_tool_call_includes_sandbox_policy_meta(
+    permission_profile: PermissionProfile,
+    expected_sandbox_policy: Value,
+) -> anyhow::Result<()> {
     // TODO(anp): Remove after packaging a Windows stdio test server for Wine exec.
     skip_if_wine_exec!(
         Ok(()),
@@ -857,7 +877,13 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
 
     let server = responses::start_mock_server().await;
 
-    let call_id = "sandbox-meta-call";
+    let call_id = format!(
+        "sandbox-meta-call-{}",
+        expected_sandbox_policy
+            .get("type")
+            .and_then(Value::as_str)
+            .expect("expected sandbox policy should include type")
+    );
     let server_name = "rmcp";
     let namespace = format!("mcp__{server_name}");
 
@@ -865,7 +891,7 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
         &server,
         responses::sse(vec![
             responses::ev_response_created("resp-1"),
-            responses::ev_function_call_with_namespace(call_id, &namespace, "sandbox_meta", "{}"),
+            responses::ev_function_call_with_namespace(&call_id, &namespace, "sandbox_meta", "{}"),
             responses::ev_completed("resp-1"),
         ]),
     )
@@ -898,10 +924,7 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
     wait_for_mcp_server(&fixture.codex, server_name).await?;
 
     fixture
-        .submit_turn_with_permission_profile(
-            "call the rmcp sandbox_meta tool",
-            PermissionProfile::read_only(),
-        )
+        .submit_turn_with_permission_profile("call the rmcp sandbox_meta tool", permission_profile)
         .await?;
 
     let request = call_mock.single_request();
@@ -911,7 +934,7 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
         request.body_json()
     );
 
-    let output_item = final_mock.single_request().function_call_output(call_id);
+    let output_item = final_mock.single_request().function_call_output(&call_id);
     let output_text = output_item
         .get("output")
         .and_then(Value::as_str)
@@ -927,11 +950,8 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
         .get(MCP_SANDBOX_STATE_META_CAPABILITY)
         .expect("sandbox state metadata should be present");
     assert_eq!(
-        sandbox_meta
-            .get("sandboxPolicy")
-            .and_then(|policy| policy.get("type"))
-            .and_then(Value::as_str),
-        Some("read-only")
+        sandbox_meta.get("sandboxPolicy"),
+        Some(&expected_sandbox_policy)
     );
     let expected_sandbox_cwd = PathUri::from_abs_path(&fixture.config.cwd).to_string();
     assert_eq!(
