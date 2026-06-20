@@ -141,7 +141,7 @@ fn sandbox_policy_meta_preserves_disabled_for_foreign_cwd() {
     let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
 
     assert_eq!(
-        sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::Disabled, &foreign_cwd),
+        sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::Disabled, &foreign_cwd, &[]),
         Some(SandboxPolicy::DangerFullAccess)
     );
 }
@@ -154,7 +154,7 @@ fn sandbox_policy_meta_preserves_external_for_foreign_cwd() {
     };
 
     assert_eq!(
-        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd),
+        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd, &[]),
         Some(SandboxPolicy::ExternalSandbox {
             network_access: NetworkAccess::Enabled,
         })
@@ -166,7 +166,7 @@ fn sandbox_policy_meta_preserves_read_only_for_foreign_cwd() {
     let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
 
     assert_eq!(
-        sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::read_only(), &foreign_cwd),
+        sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::read_only(), &foreign_cwd, &[]),
         Some(SandboxPolicy::ReadOnly {
             network_access: false,
         })
@@ -182,7 +182,7 @@ fn sandbox_policy_meta_preserves_full_access_for_foreign_cwd() {
     );
 
     assert_eq!(
-        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd),
+        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd, &[]),
         Some(SandboxPolicy::DangerFullAccess)
     );
 }
@@ -192,7 +192,32 @@ fn sandbox_policy_meta_preserves_workspace_write_for_foreign_cwd() {
     let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
 
     assert_eq!(
-        sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::workspace_write(), &foreign_cwd),
+        sandbox_policy_for_mcp_sandbox_state(
+            &PermissionProfile::workspace_write(),
+            &foreign_cwd,
+            &[]
+        ),
+        Some(SandboxPolicy::WorkspaceWrite {
+            writable_roots: Vec::new(),
+            network_access: false,
+            exclude_tmpdir_env_var: false,
+            exclude_slash_tmp: false,
+        })
+    );
+}
+
+#[test]
+fn sandbox_policy_meta_preserves_materialized_workspace_write_for_foreign_cwd() {
+    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let workspace_root =
+        AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace"))
+            .expect("absolute path");
+    let workspace_roots = vec![workspace_root];
+    let profile = PermissionProfile::workspace_write()
+        .materialize_project_roots_with_workspace_roots(&workspace_roots);
+
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd, &workspace_roots),
         Some(SandboxPolicy::WorkspaceWrite {
             writable_roots: Vec::new(),
             network_access: false,
@@ -205,7 +230,8 @@ fn sandbox_policy_meta_preserves_workspace_write_for_foreign_cwd() {
 #[test]
 fn sandbox_policy_meta_omits_workspace_write_with_extra_roots_for_foreign_cwd() {
     let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
-    let extra_root = AbsolutePathBuf::from_absolute_path("/tmp/extra").expect("absolute path");
+    let extra_root = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("extra"))
+        .expect("absolute path");
     let profile = PermissionProfile::workspace_write_with(
         &[extra_root],
         NetworkSandboxPolicy::Restricted,
@@ -214,8 +240,30 @@ fn sandbox_policy_meta_omits_workspace_write_with_extra_roots_for_foreign_cwd() 
     );
 
     assert_eq!(
-        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd),
+        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd, &[]),
         None
+    );
+}
+
+#[test]
+fn sandbox_policy_meta_preserves_materialized_multiple_workspace_roots_for_foreign_cwd() {
+    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let first = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace-a"))
+        .expect("absolute path");
+    let second = AbsolutePathBuf::from_absolute_path(std::env::temp_dir().join("workspace-b"))
+        .expect("absolute path");
+    let workspace_roots = vec![first, second.clone()];
+    let profile = PermissionProfile::workspace_write()
+        .materialize_project_roots_with_workspace_roots(&workspace_roots);
+
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd, &workspace_roots),
+        Some(SandboxPolicy::WorkspaceWrite {
+            writable_roots: vec![second],
+            network_access: false,
+            exclude_tmpdir_env_var: false,
+            exclude_slash_tmp: false,
+        })
     );
 }
 

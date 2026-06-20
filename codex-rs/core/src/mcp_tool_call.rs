@@ -750,7 +750,12 @@ async fn augment_mcp_tool_request_meta_with_sandbox_state(
         return Ok(meta);
     };
     let permission_profile = turn_context.permission_profile();
-    let sandbox_policy = sandbox_policy_for_mcp_sandbox_state(&permission_profile, &sandbox_cwd);
+    let workspace_roots = turn_context.config.effective_workspace_roots();
+    let sandbox_policy = sandbox_policy_for_mcp_sandbox_state(
+        &permission_profile,
+        &sandbox_cwd,
+        workspace_roots.as_slice(),
+    );
     let sandbox_state = serde_json::to_value(SandboxState {
         permission_profile: Some(permission_profile),
         sandbox_policy,
@@ -783,6 +788,7 @@ async fn augment_mcp_tool_request_meta_with_sandbox_state(
 fn sandbox_policy_for_mcp_sandbox_state(
     permission_profile: &PermissionProfile,
     sandbox_cwd: &PathUri,
+    workspace_roots: &[AbsolutePathBuf],
 ) -> Option<SandboxPolicy> {
     if let Ok(cwd) = sandbox_cwd.to_abs_path() {
         return Some(
@@ -791,6 +797,12 @@ fn sandbox_policy_for_mcp_sandbox_state(
                 cwd.as_path(),
             ),
         );
+    }
+
+    if let Some(cwd) = workspace_roots.first()
+        && let Ok(sandbox_policy) = permission_profile.to_legacy_sandbox_policy(cwd.as_path())
+    {
+        return Some(sandbox_policy);
     }
 
     match permission_profile {
@@ -825,6 +837,7 @@ fn sandbox_policy_for_mcp_sandbox_state(
                 workspace_write_sandbox_policy_without_native_cwd(
                     &file_system_policy,
                     network_policy,
+                    workspace_roots,
                 )
             }
         }
@@ -834,12 +847,14 @@ fn sandbox_policy_for_mcp_sandbox_state(
 fn workspace_write_sandbox_policy_without_native_cwd(
     file_system_policy: &FileSystemSandboxPolicy,
     network_policy: NetworkSandboxPolicy,
+    workspace_roots: &[AbsolutePathBuf],
 ) -> Option<SandboxPolicy> {
     if !file_system_policy.has_full_disk_read_access() {
         return None;
     }
 
-    let mut workspace_root_writable = false;
+    let mut symbolic_workspace_root_writable = false;
+    let mut materialized_workspace_root_writable = false;
     let mut tmpdir_writable = false;
     let mut slash_tmp_writable = false;
 
@@ -851,7 +866,7 @@ fn workspace_write_sandbox_policy_without_native_cwd(
         match &entry.path {
             FileSystemPath::Special { value } => match value {
                 FileSystemSpecialPath::ProjectRoots { subpath: None } => {
-                    workspace_root_writable = true;
+                    symbolic_workspace_root_writable = true;
                 }
                 FileSystemSpecialPath::Tmpdir => {
                     tmpdir_writable = true;
@@ -864,16 +879,25 @@ fn workspace_write_sandbox_policy_without_native_cwd(
                 | FileSystemSpecialPath::ProjectRoots { subpath: Some(_) }
                 | FileSystemSpecialPath::Unknown { .. } => return None,
             },
-            FileSystemPath::Path { .. } | FileSystemPath::GlobPattern { .. } => return None,
+            FileSystemPath::Path { path } => {
+                if workspace_roots.len() == 1 && workspace_roots.first() == Some(path) {
+                    materialized_workspace_root_writable = true;
+                } else {
+                    return None;
+                }
+            }
+            FileSystemPath::GlobPattern { .. } => return None,
         }
     }
 
-    workspace_root_writable.then_some(SandboxPolicy::WorkspaceWrite {
-        writable_roots: Vec::new(),
-        network_access: network_policy.is_enabled(),
-        exclude_tmpdir_env_var: !tmpdir_writable,
-        exclude_slash_tmp: !slash_tmp_writable,
-    })
+    (symbolic_workspace_root_writable || materialized_workspace_root_writable).then_some(
+        SandboxPolicy::WorkspaceWrite {
+            writable_roots: Vec::new(),
+            network_access: network_policy.is_enabled(),
+            exclude_tmpdir_env_var: !tmpdir_writable,
+            exclude_slash_tmp: !slash_tmp_writable,
+        },
+    )
 }
 
 fn sandbox_cwd_for_mcp_server(turn_context: &TurnContext, environment_id: &str) -> Option<PathUri> {
