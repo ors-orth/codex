@@ -68,6 +68,10 @@ use codex_protocol::mcp_approval_meta::TOOL_PARAMS_KEY as MCP_TOOL_APPROVAL_TOOL
 use codex_protocol::mcp_approval_meta::TOOL_TITLE_KEY as MCP_TOOL_APPROVAL_TOOL_TITLE_KEY;
 use codex_protocol::models::PermissionProfile;
 use codex_protocol::openai_models::InputModality;
+use codex_protocol::permissions::FileSystemPath;
+use codex_protocol::permissions::FileSystemSandboxPolicy;
+use codex_protocol::permissions::FileSystemSpecialPath;
+use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::AskForApproval;
 use codex_protocol::protocol::McpInvocation;
 use codex_protocol::protocol::NetworkAccess;
@@ -818,10 +822,58 @@ fn sandbox_policy_for_mcp_sandbox_state(
                     network_access: network_policy.is_enabled(),
                 })
             } else {
-                None
+                workspace_write_sandbox_policy_without_native_cwd(
+                    &file_system_policy,
+                    network_policy,
+                )
             }
         }
     }
+}
+
+fn workspace_write_sandbox_policy_without_native_cwd(
+    file_system_policy: &FileSystemSandboxPolicy,
+    network_policy: NetworkSandboxPolicy,
+) -> Option<SandboxPolicy> {
+    if !file_system_policy.has_full_disk_read_access() {
+        return None;
+    }
+
+    let mut workspace_root_writable = false;
+    let mut tmpdir_writable = false;
+    let mut slash_tmp_writable = false;
+
+    for entry in &file_system_policy.entries {
+        if !entry.access.can_write() {
+            continue;
+        }
+
+        match &entry.path {
+            FileSystemPath::Special { value } => match value {
+                FileSystemSpecialPath::ProjectRoots { subpath: None } => {
+                    workspace_root_writable = true;
+                }
+                FileSystemSpecialPath::Tmpdir => {
+                    tmpdir_writable = true;
+                }
+                FileSystemSpecialPath::SlashTmp => {
+                    slash_tmp_writable = true;
+                }
+                FileSystemSpecialPath::Root
+                | FileSystemSpecialPath::Minimal
+                | FileSystemSpecialPath::ProjectRoots { subpath: Some(_) }
+                | FileSystemSpecialPath::Unknown { .. } => return None,
+            },
+            FileSystemPath::Path { .. } | FileSystemPath::GlobPattern { .. } => return None,
+        }
+    }
+
+    workspace_root_writable.then_some(SandboxPolicy::WorkspaceWrite {
+        writable_roots: Vec::new(),
+        network_access: network_policy.is_enabled(),
+        exclude_tmpdir_env_var: !tmpdir_writable,
+        exclude_slash_tmp: !slash_tmp_writable,
+    })
 }
 
 fn sandbox_cwd_for_mcp_server(turn_context: &TurnContext, environment_id: &str) -> Option<PathUri> {

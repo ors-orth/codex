@@ -36,6 +36,7 @@ use codex_rollout_trace::ToolDispatchInvocation;
 use codex_rollout_trace::ToolDispatchPayload;
 use codex_rollout_trace::ToolDispatchRequester;
 use codex_rollout_trace::replay_bundle;
+use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
 use core_test_support::hooks::trusted_config_layer_stack;
 use core_test_support::responses::ev_assistant_message;
@@ -187,11 +188,33 @@ fn sandbox_policy_meta_preserves_full_access_for_foreign_cwd() {
 }
 
 #[test]
-fn sandbox_policy_meta_omits_cwd_dependent_policy_for_foreign_cwd() {
+fn sandbox_policy_meta_preserves_workspace_write_for_foreign_cwd() {
     let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
 
     assert_eq!(
         sandbox_policy_for_mcp_sandbox_state(&PermissionProfile::workspace_write(), &foreign_cwd),
+        Some(SandboxPolicy::WorkspaceWrite {
+            writable_roots: Vec::new(),
+            network_access: false,
+            exclude_tmpdir_env_var: false,
+            exclude_slash_tmp: false,
+        })
+    );
+}
+
+#[test]
+fn sandbox_policy_meta_omits_workspace_write_with_extra_roots_for_foreign_cwd() {
+    let foreign_cwd = PathUri::parse("file:///C:/workspace").expect("valid Windows file URI");
+    let extra_root = AbsolutePathBuf::from_absolute_path("/tmp/extra").expect("absolute path");
+    let profile = PermissionProfile::workspace_write_with(
+        &[extra_root],
+        NetworkSandboxPolicy::Restricted,
+        /*exclude_tmpdir_env_var*/ false,
+        /*exclude_slash_tmp*/ false,
+    );
+
+    assert_eq!(
+        sandbox_policy_for_mcp_sandbox_state(&profile, &foreign_cwd),
         None
     );
 }
