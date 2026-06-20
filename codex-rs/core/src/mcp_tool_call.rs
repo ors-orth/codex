@@ -743,8 +743,15 @@ async fn augment_mcp_tool_request_meta_with_sandbox_state(
         return Ok(meta);
     };
     let permission_profile = turn_context.permission_profile();
+    let sandbox_policy = sandbox_cwd.to_abs_path().ok().map(|cwd| {
+        codex_sandboxing::compatibility_sandbox_policy_for_permission_profile(
+            &permission_profile,
+            cwd.as_path(),
+        )
+    });
     let sandbox_state = serde_json::to_value(SandboxState {
         permission_profile: Some(permission_profile),
+        sandbox_policy,
         codex_linux_sandbox_exe: turn_context.config.codex_linux_sandbox_exe.clone(),
         sandbox_cwd,
         use_legacy_landlock: turn_context.config.features.use_legacy_landlock(),

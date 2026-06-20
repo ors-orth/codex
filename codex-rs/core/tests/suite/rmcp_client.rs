@@ -926,7 +926,13 @@ async fn stdio_mcp_tool_call_includes_sandbox_state_meta() -> anyhow::Result<()>
     let sandbox_meta = meta
         .get(MCP_SANDBOX_STATE_META_CAPABILITY)
         .expect("sandbox state metadata should be present");
-    assert_eq!(sandbox_meta.get("sandboxPolicy"), None);
+    assert_eq!(
+        sandbox_meta
+            .get("sandboxPolicy")
+            .and_then(|policy| policy.get("type"))
+            .and_then(Value::as_str),
+        Some("read-only")
+    );
     let expected_sandbox_cwd = PathUri::from_abs_path(&fixture.config.cwd).to_string();
     assert_eq!(
         sandbox_meta.get("sandboxCwd").and_then(Value::as_str),
